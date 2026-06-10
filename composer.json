@@ -1,0 +1,25 @@
+{
+    "name": "koboldsoft/pdf-form-filler-bundle",
+    "description": "PDF form filler bundle for Contao 4.9",
+    "type": "contao-bundle",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Koboldsoft",
+            "email": "info@koboldsoft.com"
+        }
+    ],
+    "require": {
+        "php": "^7.2 || ^8.0",
+        "contao/core-bundle": "^4.9",
+        "doctrine/dbal": "^2.10 || ^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Koboldsoft\\PdfFormFillerBundle\\": "src/"
+        }
+    },
+    "extra": {
+        "contao-manager-plugin": "Koboldsoft\\PdfFormFillerBundle\\ContaoManager\\Plugin"
+    }
+}
