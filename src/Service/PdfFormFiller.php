@@ -221,6 +221,11 @@ class PdfFormFiller
     {
         $output = [];
         $code = 0;
+
+        // Pfad zur Bibliothek UND strenge Speicherlimits für Java setzen //
+        $javaEnv = 'JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 LD_LIBRARY_PATH=/usr/lib/jvm/java-17-openjdk-amd64/lib/ JAVA_TOOL_OPTIONS="-XX:CompressedClassSpaceSize=128m -Xmx128m -Djava.awt.headless=true" ';
+
+
         exec($command . ' 2>&1', $output, $code);
 
         if ($code !== 0) {
