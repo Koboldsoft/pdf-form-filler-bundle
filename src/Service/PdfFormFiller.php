@@ -25,7 +25,7 @@ class PdfFormFiller
         $this->connection = $connection;
     }
 
-    public function fillPdf(string $pdfKey, int $auftragId): array
+    public function fillPdf(string $pdfKey, int $auftragId, bool $editable = false): array
     {
         if (! isset(self::PDF_FILES[$pdfKey])) {
             throw new RuntimeException('Unbekannte PDF-Vorlage: ' . $pdfKey);
@@ -49,7 +49,7 @@ class PdfFormFiller
             }
         }
 
-        $outputPath = $this->fillWithPdftk($pdfPath, $fieldValues);
+        $outputPath = $this->fillWithPdftk($pdfPath, $fieldValues, $editable);
 
         return [
             'path' => $outputPath,
@@ -175,7 +175,7 @@ class PdfFormFiller
         return $matches[1] ?? [];
     }
 
-    private function fillWithPdftk(string $pdfPath, array $fieldValues): string
+    private function fillWithPdftk(string $pdfPath, array $fieldValues, bool $editable): string
     {
         $workDir = sys_get_temp_dir() . '/pdf_form_filler_' . bin2hex(random_bytes(8));
         if (! mkdir($workDir, 0777, true) && ! is_dir($workDir)) {
@@ -186,11 +186,14 @@ class PdfFormFiller
         $outputPath = $workDir . '/filled.pdf';
         file_put_contents($xfdfPath, $this->buildXfdf($fieldValues));
 
+        $pdftkOptions = $editable ? 'need_appearances' : 'flatten';
+
         $this->runCommand(sprintf(
-            'pdftk %s fill_form %s output %s need_appearances',
+            'pdftk %s fill_form %s output %s %s',
             escapeshellarg($pdfPath),
             escapeshellarg($xfdfPath),
-            escapeshellarg($outputPath)
+            escapeshellarg($outputPath),
+            $pdftkOptions
         ));
 
         if (! is_file($outputPath) || filesize($outputPath) === 0) {

@@ -60,7 +60,7 @@ class PdfFormFillerController extends AbstractController
         }
 
         try {
-            $result = $this->pdfFormFiller->fillPdf($pdfKey, $auftragId);
+            $result = $this->pdfFormFiller->fillPdf($pdfKey, $auftragId, $this->shouldCreateEditablePdf($request));
             $response = new BinaryFileResponse($result['path']);
             $response->headers->set('Content-Type', 'application/pdf');
             $response->headers->set('Content-Disposition', 'inline; filename="' . $result['filename'] . '"');
@@ -70,5 +70,12 @@ class PdfFormFillerController extends AbstractController
         } catch (\Throwable $e) {
             return new Response('Fehler beim Erstellen der PDF: ' . $e->getMessage(), 500);
         }
+    }
+
+    private function shouldCreateEditablePdf(Request $request): bool
+    {
+        $userAgent = $request->headers->get('User-Agent', '');
+
+        return stripos($userAgent, 'Firefox/') !== false;
     }
 }
