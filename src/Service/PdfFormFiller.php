@@ -43,7 +43,7 @@ class PdfFormFiller
 
         foreach ($this->fieldMap($pdfKey) as $sourceKey => $targetFields) {
             foreach ((array) $targetFields as $fieldName) {
-                if (array_key_exists($fieldName, $fieldValues)) {
+                if ($fields === [] || array_key_exists($fieldName, $fieldValues)) {
                     $fieldValues[$fieldName] = $values[$sourceKey] ?? '';
                 }
             }
@@ -53,14 +53,18 @@ class PdfFormFiller
 
         return [
             'path' => $outputPath,
-            'filename' => pathinfo(self::PDF_FILES[$pdfKey], PATHINFO_FILENAME) . '_auftrag_' . $auftragId . '.pdf',
+            'filename' => $this->outputFilename($pdfKey, (string) ($auftrag['code'] ?? $auftragId)),
         ];
     }
 
     private function loadAuftrag(int $auftragId): array
     {
         $auftrag = $this->connection->fetchAssociative(
-            'SELECT vorname, nachname, code, f_massnahmenr, datum_eintritt, datum_austritt,datum_austritt_vorzeitig FROM mm_auftrag WHERE id = ?',
+            'SELECT a.vorname, a.nachname, a.strasse, a.plz, a.ort, a.code, a.f_massnahmenr, a.datum_eintritt, a.datum_austritt, a.datum_austritt_vorzeitig, ag.auftraggeber, m.massnahme
+             FROM mm_auftrag a
+             LEFT JOIN mm_auftraggeber ag ON ag.id = a.id_auftraggeber
+             LEFT JOIN mm_massnahme m ON m.id = a.id_massnahme
+             WHERE a.id = ?',
             [$auftragId]
         );
 
@@ -73,24 +77,43 @@ class PdfFormFiller
 
     private function buildValues(array $auftrag): array
     {
+        [$teilnehmerStrasse, $teilnehmerHausnummer] = $this->splitStreetAndHouseNumber((string) ($auftrag['strasse'] ?? ''));
+
         return [
             'vorname' => (string) ($auftrag['vorname'] ?? ''),
             'nachname' => (string) ($auftrag['nachname'] ?? ''),
             'gutschein' => (string) ($auftrag['code'] ?? ''),
+            'auftrag_code' => (string) ($auftrag['code'] ?? ''),
             'massnahmetraeger' => 'digi.camp SLE GmbH',
-            'strasse' => 'Boxhagener Str.',
-            'hausnummer' => '77/78',
-            'plz' => '102245',
-            'ort' => 'Berlin',
-            'strasse_hausnummer' => 'Boxhagener Str. 77/78',
-            'plz_ort' => '102245 Berlin',
+            'traeger_strasse' => 'Boxhagener Str.',
+            'traeger_hausnummer' => '77/78',
+            'traeger_plz' => '10245',
+            'traeger_ort' => 'Berlin',
+            'teilnehmer_strasse' => $teilnehmerStrasse,
+            'teilnehmer_hausnummer' => $teilnehmerHausnummer,
+            'teilnehmer_strasse_hausnummer' => trim((string) ($auftrag['strasse'] ?? '')),
+            'teilnehmer_plz' => (string) ($auftrag['plz'] ?? ''),
+            'teilnehmer_ort' => (string) ($auftrag['ort'] ?? ''),
+            'teilnehmer_plz_ort' => trim((string) ($auftrag['plz'] ?? '') . ' ' . (string) ($auftrag['ort'] ?? '')),
+            'massnahmeort' => 'digi.camp SLE GmbH / online',
+            'fehltage' => '---',
+            'unentschuldigte_tage' => '---',
+            'termin_nicht_erschienen' => '---',
+            'massnahme_vorzeitig_beendet_am_os' => '---',
+            'massnahme_vorzeitig_beendet_am_av' => '',
+            'checkbox_off' => 'Off',
+            'massnahmebezeichnung' => (string) ($auftrag['massnahme'] ?? ''),
             'massnahmenummer' => (string) ($auftrag['f_massnahmenr'] ?? ''),
             'teilnahmebeginn' => $this->formatDate($auftrag['datum_eintritt'] ?? null),
             'teilnahmeende' => $this->formatDate($auftrag['datum_austritt'] ?? null),
             'teilnahme_austritt_vorzeitig' => $this->formatDate($auftrag['datum_austritt_vorzeitig'] ?? null),
-            'massnahmebeendet' => ! empty($auftrag['datum_austritt_vorzeitig']) ? 'Die Teilnahme wurde vorzeitig beendet' : '',
-            'jobcenter_teilnahme_vorzeitig_beendet' => ! empty($auftrag['datum_austritt_vorzeitig']) ? '2' : '',
-            'jobcenter_letzter_teilnahmetag' => $this->formatDate(($auftrag['datum_austritt_vorzeitig'] ?? null) ?: ($auftrag['datum_austritt'] ?? null)),
+            'jobcenter' => (string) ($auftrag['auftraggeber'] ?? ''),
+            'jobcenter_stets_anwesend' => '1',
+            'jobcenter_vorzeitiges_ende_nein' => '1',
+            'jobcenter_vorzeitiges_ende_ja' => 'Off',
+            'jobcenter_letzter_teilnahmetag' => '',
+            'siehe_anlage' => 'siehe Anlage',
+            'radio_ja' => '1',
             'unterschrift_ort' => 'Berlin',
             'datum' => date('d.m.Y'),
             'ort_datum' => 'Berlin, ' . date('d.m.Y'),
@@ -104,15 +127,24 @@ class PdfFormFiller
             'nachname' => 'txtf_3_Nachname',
             'gutschein' => 'txtf_4_Gutschein',
             'massnahmetraeger' => 'txtf_5_Massnahmetraeger',
-            'strasse' => 'txtf_6_Strasse',
-            'hausnummer' => 'txtf_7_Hausnummer',
-            'plz' => 'txtf_8_PLZ',
-            'ort' => 'txtf_9_Ort',
+            'traeger_strasse' => 'txtf_6_Strasse',
+            'traeger_hausnummer' => 'txtf_7_Hausnummer',
+            'traeger_plz' => 'txtf_8_PLZ',
+            'traeger_ort' => 'txtf_9_Ort',
             'massnahmenummer' => 'txtf_10_Massnahmenummer',
             'teilnahmebeginn' => 'txtf_11_Teilnahmebeginn',
             'teilnahmeende' => 'txtf_12_Teilnahmeende',
-            'teilnahme_austritt_vorzeitig' => 'txtf_18_Massnahmebeendet_am',
-            'massnahmebeendet' => 'chbx_18_Massnahmebeendet',
+            'massnahmeort' => 'txtf_13_Massnahmeort',
+            'fehltage' => 'txtf_18_Fehltage',
+            'unentschuldigte_tage' => 'txtf_18_Unentschuldigt',
+            'termin_nicht_erschienen' => 'txtf_18_Termin',
+            'massnahme_vorzeitig_beendet_am_av' => 'txtf_18_Massnahmebeendet_am',
+            'checkbox_off' => [
+                'chbx_18_Fehltage',
+                'chbx_18_Unentschuldigt',
+                'chbx_18_Termin',
+                'chbx_18_Massnahmebeendet',
+            ],
             'unterschrift_ort' => 'txtf_19_Ort',
             'datum' => 'txtf_20_Datum',
         ];
@@ -122,14 +154,26 @@ class PdfFormFiller
             'vermittlung_teilnahmebericht' => [
                 'vorname' => 'txtfPersonVorname',
                 'nachname' => 'txtfPersonNachname',
+                'teilnehmer_strasse' => 'txtfPersonStr',
+                'teilnehmer_hausnummer' => 'txtfPersonHausNr',
+                'teilnehmer_plz' => 'txtfPersonPlz',
+                'teilnehmer_ort' => 'txtfPersonOrt',
                 'massnahmetraeger' => 'txtfBetrieb',
-                'strasse' => 'txtfBetriebStr',
-                'hausnummer' => 'txtfBetriebHausNr',
-                'plz' => 'txtfBetriebPlz',
-                'ort' => 'txtfBetriebOrt',
+                'traeger_strasse' => 'txtfBetriebStr',
+                'traeger_hausnummer' => 'txtfBetriebHausNr',
+                'traeger_plz' => 'txtfBetriebPlz',
+                'traeger_ort' => 'txtfBetriebOrt',
+                'massnahmeort' => 'txtfMassnahmeDurchfuehrungt',
                 'massnahmenummer' => 'txtfMassnahmeNr',
+                'massnahmebezeichnung' => 'txtfMassnahme',
                 'teilnahmebeginn' => 'dateMassnahmeVon',
                 'teilnahmeende' => 'dateMassnahmeBis',
+                'radio_ja' => 'rbtnEinschaetzungVermittelt',
+                'siehe_anlage' => [
+                    'txtareaEinschaetzungKenntinsse',
+                    'txtareaEinschaetzungInteresse',
+                    'txtareaEinschaetzungIntegration',
+                ],
                 'unterschrift_ort' => 'txtfErklaerungOrt',
                 'datum' => 'dateErklaerung',
             ],
@@ -138,28 +182,44 @@ class PdfFormFiller
                 'nachname' => 'txtf_2_Nachname',
                 'gutschein' => 'txtf_3_Gutschein',
                 'massnahmetraeger' => 'txtf_4_Massnahmetraeger',
-                'strasse' => 'txtf_5_Strasse',
-                'hausnummer' => 'txtf_6_Hausnummer',
-                'plz' => 'txtf_7_PLZ',
-                'ort' => 'txtf_8_Ort',
+                'traeger_strasse' => 'txtf_5_Strasse',
+                'traeger_hausnummer' => 'txtf_6_Hausnummer',
+                'traeger_plz' => 'txtf_7_PLZ',
+                'traeger_ort' => 'txtf_8_Ort',
                 'massnahmenummer' => 'txtf_9_Massnahmenummer',
+                'massnahmeort' => 'txtf_10_Massnahmeort',
+                'fehltage' => 'txtf_17_Fehltage',
+                'unentschuldigte_tage' => 'txtf_17_Unentschuldigt',
+                'massnahme_vorzeitig_beendet_am_os' => 'txtf_17_Beendet_am',
+                'checkbox_off' => [
+                    'chbx_17_Fehltage',
+                    'chbx_17_Unetnschuldigt',
+                    'chbx_17_Beendet_am',
+                ],
                 'teilnahmebeginn' => 'txtf_15_Teilnahmebeginn',
                 'teilnahmeende' => 'txtf_16_Teilnahmeende',
                 'unterschrift_ort' => 'txtf_18_Ort',
                 'datum' => 'txtf_19_Datum',
             ],
             'jobcenter_teilnahmebericht' => [
+                'jobcenter' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Jobcenter[0]',
                 'vorname' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].Vorname[0]',
                 'nachname' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].Name[0]',
                 'gutschein' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].KuNummer[0]',
                 'massnahmetraeger' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].Maßnahmetraeger[0]',
-                'strasse_hausnummer' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].Straße1[0]',
-                'plz_ort' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].PLZOrt3[0]',
+                'teilnehmer_strasse_hausnummer' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].Straße[0]',
+                'teilnehmer_plz_ort' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].PLZOrt1[0]',
                 'massnahmenummer' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular1[0].Maßnahmenummer[0]',
                 'teilnahmebeginn' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].regulaereMaß[0]',
                 'teilnahmeende' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].bis[0]',
+                'jobcenter_stets_anwesend' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].Abwesenheit1[0]',
+                'jobcenter_vorzeitiges_ende_nein' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].nein[0]',
+                'jobcenter_vorzeitiges_ende_ja' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].nein[1]',
                 'jobcenter_letzter_teilnahmetag' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].letzterTag[0]',
-                'jobcenter_teilnahme_vorzeitig_beendet' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].nein[1]',
+                'siehe_anlage' => [
+                    'TeilnehmerbezogenerBericht[0].Seite2[0].Teilformular3[0].KenntnisseundFaehigkeiten[0]',
+                    'TeilnehmerbezogenerBericht[0].Seite2[0].Teilformular3[0].PersoenlicheEigenschaften[0]',
+                ],
                 'ort_datum' => 'TeilnehmerbezogenerBericht[0].Seite2[0].Teilformular4[0].OrtDatum[0]',
             ],
         ];
@@ -173,6 +233,44 @@ class PdfFormFiller
         preg_match_all('/^FieldName: (.+)$/m', $output, $matches);
 
         return $matches[1] ?? [];
+    }
+
+    private function outputFilename(string $pdfKey, string $code): string
+    {
+        $suffix = $this->sanitizeFilenamePart($code);
+
+        $prefixes = [
+            'vermittlung_mitteilung' => 'Anlage AV',
+            'vermittlung_teilnahmebericht' => 'Teilnehmerbezogner Bericht',
+            'amdl_mitteilung' => 'Anlage OS',
+            'jobcenter_teilnahmebericht' => 'Teilnehmerbezogner Bericht',
+        ];
+
+        return ($prefixes[$pdfKey] ?? pathinfo(self::PDF_FILES[$pdfKey], PATHINFO_FILENAME)) . '_' . $suffix . '.pdf';
+    }
+
+    private function sanitizeFilenamePart(string $value): string
+    {
+        $value = trim($value);
+        $value = preg_replace('/[^\pL\pN._-]+/u', '-', $value) ?? '';
+        $value = trim($value, '.-_');
+
+        return $value !== '' ? $value : 'auftrag';
+    }
+
+    private function splitStreetAndHouseNumber(string $value): array
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return ['', ''];
+        }
+
+        if (preg_match('/^(.+?)\s+(\d+\s*[a-zA-Z]?(?:\s*[-\/]\s*\d+\s*[a-zA-Z]?)?)$/u', $value, $matches)) {
+            return [trim($matches[1]), preg_replace('/\s+/', '', trim($matches[2]))];
+        }
+
+        return [$value, ''];
     }
 
     private function fillWithPdftk(string $pdfPath, array $fieldValues, bool $editable): string
