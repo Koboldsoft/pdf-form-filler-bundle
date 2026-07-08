@@ -117,6 +117,7 @@ class PdfFormFiller
             'siehe_anlage' => 'siehe Anlage',
             'radio_ja' => '0',
             'radio_nein' => '1',
+            'radio_off' => 'Off',
             'unterschrift_ort' => 'Berlin',
             'datum' => date('d.m.Y'),
             'ort_datum' => 'Berlin, ' . date('d.m.Y'),
@@ -172,6 +173,7 @@ class PdfFormFiller
                 'teilnahmebeginn' => 'dateMassnahmeVon',
                 'teilnahmeende' => 'dateMassnahmeBis',
                 'radio_nein' => 'rbtnEinschaetzungVermittelt',
+                'radio_off' => 'rbtnBeschaeftigungVerhaeltnis',
                 'siehe_anlage' => [
                     'txtareaEinschaetzungKenntinsse',
                     'txtareaEinschaetzungInteresse',
@@ -299,11 +301,177 @@ class PdfFormFiller
             $pdftkOptions
         ));
 
+        if ($editable) {
+            $outputPath = $this->prepareEditablePdfAnnotations($outputPath, $fieldValues, $workDir);
+        }
+
         if (! is_file($outputPath) || filesize($outputPath) === 0) {
             throw new RuntimeException('PDF konnte nicht erstellt werden.');
         }
 
         return $outputPath;
+    }
+
+    private function prepareEditablePdfAnnotations(string $pdfPath, array $fieldValues, string $workDir): string
+    {
+        $radioOptions = [
+            'rbtnEinschaetzungVermittelt' => ['0', '1'],
+            'rbtnBeschaeftigungVerhaeltnis' => ['0', '1'],
+        ];
+
+        $qdfPath = $workDir . '/editable_annotations.qdf.pdf';
+        $fixedQdfPath = $workDir . '/editable_annotations_fixed.qdf.pdf';
+        $repairedQdfPath = $workDir . '/editable_annotations_repaired.qdf.pdf';
+        $fixedPdfPath = $workDir . '/filled_editable_fixed.pdf';
+
+        $this->runCommand(sprintf(
+            'qpdf --qdf --object-streams=disable %s %s',
+            escapeshellarg($pdfPath),
+            escapeshellarg($qdfPath)
+        ));
+
+        $qdf = file_get_contents($qdfPath);
+        if ($qdf === false) {
+            throw new RuntimeException('PDF konnte nicht zur Radio-Korrektur gelesen werden.');
+        }
+
+        foreach ($radioOptions as $fieldName => $options) {
+            $qdf = $this->syncRadioFieldInQdf($qdf, $fieldName, (string) ($fieldValues[$fieldName] ?? 'Off'), $options);
+        }
+
+        $qdf = $this->moveStampAnnotationsBehindOtherAnnotations($qdf);
+
+        file_put_contents($fixedQdfPath, $qdf);
+
+        $this->runCommand(sprintf(
+            'fix-qdf %s > %s',
+            escapeshellarg($fixedQdfPath),
+            escapeshellarg($repairedQdfPath)
+        ));
+
+        $this->runCommand(sprintf(
+            'qpdf %s %s',
+            escapeshellarg($repairedQdfPath),
+            escapeshellarg($fixedPdfPath)
+        ));
+
+        return $fixedPdfPath;
+    }
+
+    private function moveStampAnnotationsBehindOtherAnnotations(string $qdf): string
+    {
+        preg_match_all('/(\d+)\s+0\s+obj\s*<<(.*?)>>\s*endobj/s', $qdf, $objects, PREG_SET_ORDER);
+
+        $stampObjectIds = [];
+        foreach ($objects as $object) {
+            if (strpos($object[2], '/Subtype /Stamp') !== false) {
+                $stampObjectIds[] = $object[1];
+            }
+        }
+
+        if ($stampObjectIds === []) {
+            return $qdf;
+        }
+
+        $stampLookup = array_fill_keys($stampObjectIds, true);
+        foreach ($objects as $object) {
+            if (strpos($object[2], '/Annots') === false) {
+                continue;
+            }
+
+            $oldObject = $object[0];
+            $newBody = preg_replace_callback(
+                '/\/Annots\s*\[(.*?)\]/s',
+                function (array $matches) use ($stampLookup): string {
+                    preg_match_all('/(\d+)\s+0\s+R/', $matches[1], $refMatches);
+                    $refs = $refMatches[1] ?? [];
+
+                    $stampRefs = [];
+                    $otherRefs = [];
+                    foreach ($refs as $ref) {
+                        if (isset($stampLookup[$ref])) {
+                            $stampRefs[] = $ref . ' 0 R';
+                        } else {
+                            $otherRefs[] = $ref . ' 0 R';
+                        }
+                    }
+
+                    if ($stampRefs === []) {
+                        return $matches[0];
+                    }
+
+                    return '/Annots [ ' . implode(' ', array_merge($stampRefs, $otherRefs)) . ' ]';
+                },
+                $object[2]
+            );
+
+            if ($newBody === null || $newBody === $object[2]) {
+                continue;
+            }
+
+            $newObject = $object[1] . " 0 obj\n<<" . $newBody . ">>\nendobj";
+            $qdf = str_replace($oldObject, $newObject, $qdf);
+        }
+
+        return $qdf;
+    }
+
+    private function syncRadioFieldInQdf(string $qdf, string $fieldName, string $value, array $options): string
+    {
+        preg_match_all('/(\d+)\s+0\s+obj\s*<<(.*?)>>\s*endobj/s', $qdf, $objects, PREG_SET_ORDER);
+
+        $objectBodies = [];
+        $parentBody = null;
+        foreach ($objects as $object) {
+            $objectBodies[$object[1]] = $object;
+            if (strpos($object[2], '/T (' . $fieldName . ')') !== false && strpos($object[2], '/Kids') !== false) {
+                $parentBody = $object[2];
+            }
+        }
+
+        if ($parentBody === null || ! preg_match('/\/Kids\s*\[(.*?)\]/s', $parentBody, $kidsMatch)) {
+            return $qdf;
+        }
+
+        preg_match_all('/(\d+)\s+0\s+R/', $kidsMatch[1], $kidMatches);
+        $kidIds = $kidMatches[1] ?? [];
+        usort($kidIds, function (string $left, string $right) use ($objectBodies): int {
+            return $this->radioWidgetXPosition($objectBodies[$left][2] ?? '') <=> $this->radioWidgetXPosition($objectBodies[$right][2] ?? '');
+        });
+
+        foreach ($kidIds as $index => $kidId) {
+            if (! isset($objectBodies[$kidId])) {
+                continue;
+            }
+
+            $optionValue = $options[$index] ?? 'Off';
+            $appearanceState = $value === $optionValue ? $optionValue : 'Off';
+            $oldObject = $objectBodies[$kidId][0];
+            $replacementCount = 0;
+            $newBody = preg_replace('/\/AS\s+\/[^\s\]<>\/]+/', '/AS /' . $appearanceState, $objectBodies[$kidId][2], 1, $replacementCount);
+
+            if ($newBody === null) {
+                continue;
+            }
+
+            if ($replacementCount === 0) {
+                $newBody = "\n  /AS /" . $appearanceState . $objectBodies[$kidId][2];
+            }
+
+            $newObject = $kidId . " 0 obj\n<<" . $newBody . ">>\nendobj";
+            $qdf = str_replace($oldObject, $newObject, $qdf);
+        }
+
+        return $qdf;
+    }
+
+    private function radioWidgetXPosition(string $objectBody): float
+    {
+        if (preg_match('/\/Rect\s*\[\s*([-0-9.]+)/s', $objectBody, $matches)) {
+            return (float) $matches[1];
+        }
+
+        return 0.0;
     }
 
     private function buildXfdf(array $fieldValues): string
