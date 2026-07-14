@@ -60,7 +60,7 @@ class PdfFormFiller
     private function loadAuftrag(int $auftragId): array
     {
         $auftrag = $this->connection->fetchAssociative(
-            'SELECT a.vorname, a.nachname, a.strasse, a.plz, a.ort, a.code, a.f_massnahmenr, a.datum_eintritt, a.datum_austritt, a.datum_austritt_vorzeitig, ag.auftraggeber, m.massnahme
+            'SELECT a.vorname, a.nachname, a.strasse, a.plz, a.ort, a.code, a.f_massnahmenr, a.datum_eintritt, a.datum_austritt, a.datum_austritt_vorzeitig, a.id_standort, ag.auftraggeber, m.massnahme
              FROM mm_auftrag a
              LEFT JOIN mm_auftraggeber ag ON ag.id = a.id_auftraggeber
              LEFT JOIN mm_massnahme m ON m.id = a.id_massnahme
@@ -78,6 +78,7 @@ class PdfFormFiller
     private function buildValues(array $auftrag): array
     {
         [$teilnehmerStrasse, $teilnehmerHausnummer] = $this->splitStreetAndHouseNumber((string) ($auftrag['strasse'] ?? ''));
+        $standortAdresse = $this->loadStandortAdresse($auftrag['id_standort'] ?? null);
 
         return [
             'vorname' => (string) ($auftrag['vorname'] ?? ''),
@@ -91,6 +92,10 @@ class PdfFormFiller
             'traeger_plz' => '10245',
             'traeger_ort' => 'Berlin',
             'traeger_plz_ort' => '10245 Berlin',
+            'standort_strasse' => $standortAdresse['strasse'],
+            'standort_hausnummer' => $standortAdresse['hausnummer'],
+            'standort_plz' => $standortAdresse['plz'],
+            'standort_ort' => $standortAdresse['ort'],
             'teilnehmer_strasse' => $teilnehmerStrasse,
             'teilnehmer_hausnummer' => $teilnehmerHausnummer,
             'teilnehmer_strasse_hausnummer' => trim((string) ($auftrag['strasse'] ?? '')),
@@ -139,6 +144,10 @@ class PdfFormFiller
             'teilnahmebeginn' => 'txtf_11_Teilnahmebeginn',
             'teilnahmeende' => 'txtf_12_Teilnahmeende',
             'massnahmeort' => 'txtf_13_Massnahmeort',
+            'standort_strasse' => 'txtf_14_Stasse',
+            'standort_hausnummer' => 'txtf_15_Hausnummer',
+            'standort_plz' => 'txtf_16_PLZ',
+            'standort_ort' => 'txtf_17_Ort',
             'fehltage' => 'txtf_18_Fehltage',
             'unentschuldigte_tage' => 'txtf_18_Unentschuldigt',
             'termin_nicht_erschienen' => 'txtf_18_Termin',
@@ -168,6 +177,10 @@ class PdfFormFiller
                 'traeger_plz' => 'txtfBetriebPlz',
                 'traeger_ort' => 'txtfBetriebOrt',
                 'massnahmeort' => 'txtfMassnahmeDurchfuehrungt',
+                'standort_strasse' => 'txtfMassnahmeStr',
+                'standort_hausnummer' => 'txtfMassnahmeHausNr',
+                'standort_plz' => 'txtfMassnahmePLZ',
+                'standort_ort' => 'txtfMassnahmeOrt',
                 'massnahmenummer' => 'txtfMassnahmeNr',
                 'massnahmebezeichnung' => 'txtfMassnahme',
                 'teilnahmebeginn' => 'dateMassnahmeVon',
@@ -193,6 +206,10 @@ class PdfFormFiller
                 'traeger_ort' => 'txtf_8_Ort',
                 'massnahmenummer' => 'txtf_9_Massnahmenummer',
                 'massnahmeort' => 'txtf_10_Massnahmeort',
+                'standort_strasse' => 'txtf_11_Strasse',
+                'standort_hausnummer' => 'txtf_12_Hausnummer',
+                'standort_plz' => 'txtf_13_PLZ',
+                'standort_ort' => 'txtf_14_Ort',
                 'fehltage' => 'txtf_17_Fehltage',
                 'unentschuldigte_tage' => 'txtf_17_Unentschuldigt',
                 'massnahme_vorzeitig_beendet_am_os' => 'txtf_17_Beendet_am',
@@ -273,11 +290,74 @@ class PdfFormFiller
             return ['', ''];
         }
 
-        if (preg_match('/^(.+?)\s+(\d+\s*[a-zA-Z]?(?:\s*[-\/]\s*\d+\s*[a-zA-Z]?)?)$/u', $value, $matches)) {
-            return [trim($matches[1]), preg_replace('/\s+/', '', trim($matches[2]))];
+        if (preg_match('/^(.+?)\s+(\d+\s*[\pL]?(?:\s*[-\/]\s*\d+\s*[\pL]?)*(?:\s+[\pL][\pL.-]*)?)$/u', $value, $matches)) {
+            return [
+                trim($matches[1]),
+                preg_replace('/\s*([-\/])\s*/u', '$1', trim($matches[2])) ?? '',
+            ];
         }
 
         return [$value, ''];
+    }
+
+    private function loadStandortAdresse($standortId): array
+    {
+        $empty = $this->emptyStandortAdresse();
+        $standortId = $this->normalizeStandortId($standortId);
+
+        if ($standortId === null) {
+            return $empty;
+        }
+
+        $standort = $this->connection->fetchAssociative(
+            'SELECT strasse, plz, ort FROM mm_standort WHERE id = ?',
+            [$standortId]
+        );
+
+        if (! is_array($standort)) {
+            return $empty;
+        }
+
+        [$strasse, $hausnummer] = $this->splitStreetAndHouseNumber($this->stringValue($standort['strasse'] ?? null));
+
+        return [
+            'strasse' => $strasse,
+            'hausnummer' => $hausnummer,
+            'plz' => $this->stringValue($standort['plz'] ?? null),
+            'ort' => $this->stringValue($standort['ort'] ?? null),
+        ];
+    }
+
+    private function emptyStandortAdresse(): array
+    {
+        return [
+            'strasse' => '',
+            'hausnummer' => '',
+            'plz' => '',
+            'ort' => '',
+        ];
+    }
+
+    private function normalizeStandortId($value): ?int
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        if ($value === '' || strtolower($value) === 'null' || ! ctype_digit($value)) {
+            return null;
+        }
+
+        $standortId = (int) $value;
+
+        return $standortId > 0 ? $standortId : null;
+    }
+
+    private function stringValue($value): string
+    {
+        return trim((string) ($value ?? ''));
     }
 
     private function fillWithPdftk(string $pdfPath, array $fieldValues, bool $editable): string
