@@ -10,10 +10,13 @@ use RuntimeException;
 class PdfFormFiller
 {
     private const PDF_DIR = __DIR__ . '/../Pdfs';
+    private const VERMITTLUNG_TEILNAHMEBERICHT_KEY = 'vermittlung_teilnahmebericht';
+    private const RBTN_EINSCHAETZUNG_VERMITTELT = 'rbtnEinschaetzungVermittelt';
+    private const RBTN_EINSCHAETZUNG_VERMITTELT_JA = '0';
 
     private const PDF_FILES = [
         'vermittlung_mitteilung' => 'a_VorlageMitteilungZurVorlageBeiDerVermittlungsfachkraft.pdf',
-        'vermittlung_teilnahmebericht' => 'b_VorlageTeilnahmebezogenerBerichtZurVorlageBeiDerVermittlungsfachkraft.pdf',
+        self::VERMITTLUNG_TEILNAHMEBERICHT_KEY => 'b_VorlageTeilnahmebezogenerBerichtZurVorlageBeiDerVermittlungsfachkraft.pdf',
         'amdl_mitteilung' => 'c_VorlageMitteilungZurVorlagebeimOperativenServiceAMDL.pdf',
         'jobcenter_teilnahmebericht' => 'd_VorlageTeilnehmerbezogenerBerichtJobcenter.pdf',
     ];
@@ -47,6 +50,10 @@ class PdfFormFiller
                     $fieldValues[$fieldName] = $values[$sourceKey] ?? '';
                 }
             }
+        }
+
+        if ($pdfKey === self::VERMITTLUNG_TEILNAHMEBERICHT_KEY) {
+            $fieldValues[self::RBTN_EINSCHAETZUNG_VERMITTELT] = self::RBTN_EINSCHAETZUNG_VERMITTELT_JA;
         }
 
         $outputPath = $this->fillWithPdftk($pdfPath, $fieldValues, $editable);
@@ -164,7 +171,7 @@ class PdfFormFiller
 
         $maps = [
             'vermittlung_mitteilung' => $commonA,
-            'vermittlung_teilnahmebericht' => [
+            self::VERMITTLUNG_TEILNAHMEBERICHT_KEY => [
                 'vorname' => 'txtfPersonVorname',
                 'nachname' => 'txtfPersonNachname',
                 'teilnehmer_strasse' => 'txtfPersonStr',
@@ -185,7 +192,7 @@ class PdfFormFiller
                 'massnahmebezeichnung' => 'txtfMassnahme',
                 'teilnahmebeginn' => 'dateMassnahmeVon',
                 'teilnahmeende' => 'dateMassnahmeBis',
-                'radio_nein' => 'rbtnEinschaetzungVermittelt',
+                'radio_ja' => self::RBTN_EINSCHAETZUNG_VERMITTELT,
                 'radio_off' => 'rbtnBeschaeftigungVerhaeltnis',
                 'siehe_anlage' => [
                     'txtareaEinschaetzungKenntinsse',
@@ -395,7 +402,7 @@ class PdfFormFiller
     private function prepareEditablePdfAnnotations(string $pdfPath, array $fieldValues, string $workDir): string
     {
         $radioOptions = [
-            'rbtnEinschaetzungVermittelt' => ['0', '1'],
+            self::RBTN_EINSCHAETZUNG_VERMITTELT => [self::RBTN_EINSCHAETZUNG_VERMITTELT_JA, '1'],
             'rbtnBeschaeftigungVerhaeltnis' => ['0', '1'],
         ];
 
