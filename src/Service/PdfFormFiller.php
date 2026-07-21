@@ -11,6 +11,7 @@ class PdfFormFiller
 {
     private const PDF_DIR = __DIR__ . '/../Pdfs';
     private const VERMITTLUNG_TEILNAHMEBERICHT_KEY = 'vermittlung_teilnahmebericht';
+    private const JOBCENTER_TEILNAHMEBERICHT_KEY = 'jobcenter_teilnahmebericht';
     private const RBTN_EINSCHAETZUNG_VERMITTELT = 'rbtnEinschaetzungVermittelt';
     private const RBTN_EINSCHAETZUNG_VERMITTELT_JA = '0';
 
@@ -18,7 +19,7 @@ class PdfFormFiller
         'vermittlung_mitteilung' => 'a_VorlageMitteilungZurVorlageBeiDerVermittlungsfachkraft.pdf',
         self::VERMITTLUNG_TEILNAHMEBERICHT_KEY => 'b_VorlageTeilnahmebezogenerBerichtZurVorlageBeiDerVermittlungsfachkraft.pdf',
         'amdl_mitteilung' => 'c_VorlageMitteilungZurVorlagebeimOperativenServiceAMDL.pdf',
-        'jobcenter_teilnahmebericht' => 'd_VorlageTeilnehmerbezogenerBerichtJobcenter.pdf',
+        self::JOBCENTER_TEILNAHMEBERICHT_KEY => 'd_VorlageTeilnehmerbezogenerBerichtJobcenter.pdf',
     ];
 
     private Connection $connection;
@@ -56,7 +57,10 @@ class PdfFormFiller
             $fieldValues[self::RBTN_EINSCHAETZUNG_VERMITTELT] = self::RBTN_EINSCHAETZUNG_VERMITTELT_JA;
         }
 
-        $outputPath = $this->fillWithPdftk($pdfPath, $fieldValues, $editable);
+        // Das Feld "Begruendung" im Jobcenter-Bericht muss nach der
+        // automatischen Befuellung weiterhin als Formularfeld erhalten bleiben.
+        $keepFormFields = $editable || $pdfKey === self::JOBCENTER_TEILNAHMEBERICHT_KEY;
+        $outputPath = $this->fillWithPdftk($pdfPath, $fieldValues, $keepFormFields);
 
         return [
             'path' => $outputPath,
@@ -126,6 +130,7 @@ class PdfFormFiller
             'jobcenter_vorzeitiges_ende_nein' => '1',
             'jobcenter_vorzeitiges_ende_ja' => 'Off',
             'jobcenter_letzter_teilnahmetag' => '',
+            'jobcenter_begruendung' => '',
             'siehe_anlage' => 'siehe Anlage',
             'radio_ja' => '0',
             'radio_nein' => '1',
@@ -247,6 +252,7 @@ class PdfFormFiller
                 'jobcenter_vorzeitiges_ende_nein' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].nein[0]',
                 'jobcenter_vorzeitiges_ende_ja' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].nein[1]',
                 'jobcenter_letzter_teilnahmetag' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].letzterTag[0]',
+                'jobcenter_begruendung' => 'TeilnehmerbezogenerBericht[0].Seite1[0].Teilformular2[0].Begruendung[0]',
                 'siehe_anlage' => [
                     'TeilnehmerbezogenerBericht[0].Seite2[0].Teilformular3[0].KenntnisseundFaehigkeiten[0]',
                     'TeilnehmerbezogenerBericht[0].Seite2[0].Teilformular3[0].PersoenlicheEigenschaften[0]',
